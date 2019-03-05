@@ -10,7 +10,7 @@ import AVFoundation
 import Photos
 import UIKit
 
-class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDelegate {
+class ViewController: UIViewController {
 
     private var session: AVCaptureSession!
     private var writer: AVAssetWriter!
@@ -20,7 +20,6 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
     private var imageView: UIImageView!
     private var label: UILabel!
     private var url: URL!
-    private var size: CGSize!
     
     @IBAction func startButtonTapped(_ sender: UIButton) {
         self.setup()
@@ -41,7 +40,34 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
         self.setupWriter()
         self.setupSynthesis()
     }
-    
+}
+
+extension ViewController: AVCaptureVideoDataOutputSampleBufferDelegate {
+    func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+        self.write(sampleBuffer: sampleBuffer)
+        
+        if self.frameCount > 200 {
+            self.session.stopRunning()
+            self.writer.endSession(atSourceTime: CMTime(value: Int64(frameCount - 1) * 30, timescale: 30))
+            self.writer.finishWriting(completionHandler: { () -> Void in
+                self.saveMovie()
+                
+                for output in self.session.outputs {
+                    self.session.removeOutput(output)
+                }
+                for input in self.session.inputs {
+                    self.session.removeInput(input)
+                }
+                self.session = nil
+                self.writer = nil
+                
+                self.frameCount = 0
+            })
+        }
+    }
+}
+
+extension ViewController {
     private func setupVideo() {
         guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) else { return }
         device.activeVideoMinFrameDuration = CMTime(value: 1, timescale: 30)
@@ -60,15 +86,12 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
         // キューがブロックされているときに新しいフレームが来たら削除する
         output.alwaysDiscardsLateVideoFrames = true
         self.session.addOutput(output)
-
+        
         for connection in output.connections {
             if connection.isVideoOrientationSupported {
                 connection.videoOrientation = .portrait
             }
         }
-        
-//        self.size = CGSize(width: 320, height: 576)
-        self.size = self.view.frame.size
     }
     
     private func setupPreview() {
@@ -79,33 +102,27 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
         layer.connection?.videoOrientation = .portrait
         self.view.layer.addSublayer(layer)
     }
-    
+}
+
+extension ViewController {
     private func setupWriter() {
         self.url = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("\(NSUUID().uuidString).mov")
         self.writer = try? AVAssetWriter(outputURL: url, fileType: .mov)
-
+        
         let settings: [String: Any] = [
             AVVideoCodecKey: AVVideoCodecType.h264,
-            AVVideoWidthKey: self.size.width,
-            AVVideoHeightKey: self.size.height
+            AVVideoWidthKey: self.view.frame.size.width,
+            AVVideoHeightKey: self.view.frame.size.height
         ]
         let input = AVAssetWriterInput(mediaType: .video, outputSettings: settings)
         input.expectsMediaDataInRealTime = true
         self.writer.add(input)
-
+        
         self.adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32ARGB,
-            kCVPixelBufferWidthKey as String: self.size.width,
-            kCVPixelBufferHeightKey as String: self.size.height
-        ])
-    }
-    
-    private func setupSynthesis() {
-        self.imageView = UIImageView(frame: CGRect(x: 0, y: 0, width: self.view.frame.width, height: self.view.frame.height - 100))
-        self.label = UILabel()
-        self.label.center = self.view.center
-        self.label.frame.size = CGSize(width: 100, height: 100)
-        self.label.font = UIFont.systemFont(ofSize: 20)
+            kCVPixelBufferWidthKey as String: self.view.frame.size.width,
+            kCVPixelBufferHeightKey as String: self.view.frame.size.height
+            ])
     }
     
     private func write(sampleBuffer: CMSampleBuffer) {
@@ -130,6 +147,16 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
             }
         }
     }
+}
+
+extension ViewController {
+    private func setupSynthesis() {
+        self.imageView = UIImageView(frame: CGRect(x: 0, y: 0, width: self.view.frame.width, height: self.view.frame.height - 100))
+        self.label = UILabel()
+        self.label.center = self.view.center
+        self.label.frame.size = CGSize(width: 100, height: 100)
+        self.label.font = UIFont.systemFont(ofSize: 20)
+    }
     
     private func synthesisImage(sampleBuffer: CMSampleBuffer) -> CVPixelBuffer {
         let image = self.uiImageFromCMSampleBuffer(sampleBuffer: sampleBuffer)
@@ -149,11 +176,11 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
         let options = [
             kCVPixelBufferCGImageCompatibilityKey: true,
             kCVPixelBufferCGBitmapContextCompatibilityKey: true
-        ] as CFDictionary
+            ] as CFDictionary
         var pixelBuffer: CVPixelBuffer?
         CVPixelBufferCreate(kCFAllocatorDefault, Int(image.size.width), Int(image.size.height), kCVPixelFormatType_32ARGB, options as CFDictionary, &pixelBuffer)
         CVPixelBufferLockBaseAddress(pixelBuffer!, CVPixelBufferLockFlags(rawValue: 0))
-
+        
         let pixelData = CVPixelBufferGetBaseAddress(pixelBuffer!)
         let rgbColorSpace = CGColorSpaceCreateDeviceRGB()
         let context = CGContext(data: pixelData, width: Int(image.size.width), height: Int(image.size.height), bitsPerComponent: 8, bytesPerRow: CVPixelBufferGetBytesPerRow(pixelBuffer!), space: rgbColorSpace, bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue)!
@@ -187,7 +214,9 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
         
         return newImage
     }
-    
+}
+
+extension ViewController {
     private func saveMovie() {
         PHPhotoLibrary.shared().performChanges({
             PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: self.url)
@@ -207,28 +236,4 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
             }
         })
     }
-
-    func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
-        self.write(sampleBuffer: sampleBuffer)
-        
-        if self.frameCount > 200 {
-            self.session.stopRunning()
-            self.writer.endSession(atSourceTime: CMTime(value: Int64(frameCount - 1) * 30, timescale: 30))
-            self.writer.finishWriting(completionHandler: { () -> Void in
-                self.saveMovie()
-                
-                for output in self.session.outputs {
-                    self.session.removeOutput(output)
-                }
-                for input in self.session.inputs {
-                    self.session.removeInput(input)
-                }
-                self.session = nil
-                self.writer = nil
-                
-                self.frameCount = 0
-            })
-        }
-    }
 }
-

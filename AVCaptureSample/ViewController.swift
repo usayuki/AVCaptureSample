@@ -82,16 +82,12 @@ extension ViewController {
         
         self.session = AVCaptureSession()
         
-        // 入力の設定
         let input = try! AVCaptureDeviceInput.init(device: device)
         self.session.addInput(input)
         
-        // 出力の設定
         let output = AVCaptureVideoDataOutput()
-        // ピクセルフォーマットを32bit BGR+Aにする
         output.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
         output.setSampleBufferDelegate(self, queue: DispatchQueue.main)
-        // キューがブロックされているときに新しいフレームが来たら削除する
         output.alwaysDiscardsLateVideoFrames = true
         self.session.addOutput(output)
         

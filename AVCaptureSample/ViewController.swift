@@ -43,9 +43,16 @@ class ViewController: UIViewController {
 }
 
 extension ViewController: AVCaptureVideoDataOutputSampleBufferDelegate {
+    /// Notifies the delegate that a new video frame was written.
+    ///
+    /// - Parameters:
+    ///   - output: The capture output object.
+    ///   - sampleBuffer: A CMSampleBuffer object containing the video frame data and additional information about the frame, such as its format and presentation time.
+    ///   - connection: The connection from which the video was received.
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         self.write(sampleBuffer: sampleBuffer)
         
+        // As it is a sample, when the frameCount exceeds 200, end shooting and save the movie.
         if self.frameCount > 200 {
             self.session.stopRunning()
             self.writer.endSession(atSourceTime: CMTime(value: Int64(frameCount - 1) * 30, timescale: 30))
@@ -68,6 +75,7 @@ extension ViewController: AVCaptureVideoDataOutputSampleBufferDelegate {
 }
 
 extension ViewController {
+    /// Prepare for video shooting.
     private func setupVideo() {
         guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) else { return }
         device.activeVideoMinFrameDuration = CMTime(value: 1, timescale: 30)
@@ -94,6 +102,7 @@ extension ViewController {
         }
     }
     
+    /// Display video as it is being captured prepare.
     private func setupPreview() {
         let layer = AVCaptureVideoPreviewLayer(session: session)
         let frame = CGRect(x: 0, y: 0, width: self.view.frame.width, height: self.view.frame.height - 100)
@@ -105,6 +114,7 @@ extension ViewController {
 }
 
 extension ViewController {
+    /// Prepare to write capture data to a file.
     private func setupWriter() {
         self.url = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("\(NSUUID().uuidString).mov")
         self.writer = try? AVAssetWriter(outputURL: url, fileType: .mov)
@@ -122,9 +132,12 @@ extension ViewController {
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32ARGB,
             kCVPixelBufferWidthKey as String: self.view.frame.size.width,
             kCVPixelBufferHeightKey as String: self.view.frame.size.height
-            ])
+        ])
     }
     
+    /// Write capture data to file.
+    ///
+    /// - Parameter sampleBuffer: A CMSampleBuffer object of capture output.
     private func write(sampleBuffer: CMSampleBuffer) {
         if CMSampleBufferDataIsReady(sampleBuffer) {
             if self.writer.status == .writing {
@@ -150,6 +163,7 @@ extension ViewController {
 }
 
 extension ViewController {
+    /// Prepare of image synthesis.
     private func setupSynthesis() {
         self.imageView = UIImageView(frame: CGRect(x: 0, y: 0, width: self.view.frame.width, height: self.view.frame.height - 100))
         self.label = UILabel()
@@ -158,6 +172,10 @@ extension ViewController {
         self.label.font = UIFont.systemFont(ofSize: 20)
     }
     
+    /// The image synthesis.
+    ///
+    /// - Parameter sampleBuffer: A CMSampleBuffer object of capture output.
+    /// - Returns: The synthesized image.
     private func synthesisImage(sampleBuffer: CMSampleBuffer) -> CVPixelBuffer {
         let image = self.uiImageFromCMSampleBuffer(sampleBuffer: sampleBuffer)
         let newImage = synthesis(image: image)
@@ -165,6 +183,10 @@ extension ViewController {
         return pixelBuffer
     }
     
+    /// Convert CMSampleBuffer to UIImage.
+    ///
+    /// - Parameter sampleBuffer: A CMSampleBuffer object of capture output.
+    /// - Returns: The capture output image.
     private func uiImageFromCMSampleBuffer(sampleBuffer: CMSampleBuffer) -> UIImage {
         let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer)!
         let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
@@ -172,13 +194,17 @@ extension ViewController {
         return image
     }
     
+    /// Convert UIImage to PixelBuffer.
+    ///
+    /// - Parameter image: The synthesized image.
+    /// - Returns: The converted synthesized image.
     private func pixelBufferFromUIImage(image: UIImage) -> CVPixelBuffer {
         let options = [
             kCVPixelBufferCGImageCompatibilityKey: true,
             kCVPixelBufferCGBitmapContextCompatibilityKey: true
-            ] as CFDictionary
+        ] as CFDictionary
         var pixelBuffer: CVPixelBuffer?
-        CVPixelBufferCreate(kCFAllocatorDefault, Int(image.size.width), Int(image.size.height), kCVPixelFormatType_32ARGB, options as CFDictionary, &pixelBuffer)
+        CVPixelBufferCreate(kCFAllocatorDefault, Int(image.size.width), Int(image.size.height), kCVPixelFormatType_32ARGB, options, &pixelBuffer)
         CVPixelBufferLockBaseAddress(pixelBuffer!, CVPixelBufferLockFlags(rawValue: 0))
         
         let pixelData = CVPixelBufferGetBaseAddress(pixelBuffer!)
@@ -195,6 +221,10 @@ extension ViewController {
         return pixelBuffer!
     }
     
+    /// Perform image synthesis.
+    ///
+    /// - Parameter image: The capture output image.
+    /// - Returns: The synthesized image.
     private func synthesis(image: UIImage) -> UIImage {
         self.imageView.image = image
         self.label.text = String(frameCount)
@@ -217,22 +247,17 @@ extension ViewController {
 }
 
 extension ViewController {
+    /// Save captured data.
     private func saveMovie() {
         PHPhotoLibrary.shared().performChanges({
             PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: self.url)
         }, completionHandler: { success, error in
             DispatchQueue.main.async {
-                if success {
-                    let alert = UIAlertController(title: "保存完了", message: "", preferredStyle: .alert)
-                    let action: UIAlertAction = UIAlertAction(title: "OK", style: .default, handler: nil)
-                    alert.addAction(action)
-                    self.present(alert, animated: true, completion: nil)
-                } else {
-                    let alert = UIAlertController(title: "保存失敗", message: "", preferredStyle: .alert)
-                    let action: UIAlertAction = UIAlertAction(title: "OK", style: .default, handler: nil)
-                    alert.addAction(action)
-                    self.present(alert, animated: true, completion: nil)
-                }
+                let title = success ? "Save complete" : "Save failed"
+                let alert = UIAlertController(title: title, message: "", preferredStyle: .alert)
+                let action: UIAlertAction = UIAlertAction(title: "OK", style: .default, handler: nil)
+                alert.addAction(action)
+                self.present(alert, animated: true, completion: nil)
             }
         })
     }
